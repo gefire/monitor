@@ -2,6 +2,7 @@ package com.asura.monitor.util;
 
 import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
+import com.asura.common.response.ResponseVo;
 import com.asura.monitor.graph.entity.PushEntity;
 import com.asura.monitor.graph.util.FileRender;
 import com.asura.monitor.graph.util.FileWriter;
@@ -12,6 +13,7 @@ import java.io.File;
 import java.lang.reflect.Type;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 import static com.asura.monitor.graph.util.FileWriter.dataDir;
 
@@ -52,9 +54,16 @@ public class MonitorUtil {
     /**
      * @param lentity
      */
-    public static void writePush(String lentity,  String writeType, String ip){
+    public static void writePush(String lentity,  String writeType, String ip, Map<String, Long> map){
         try {
             List<PushEntity> list = getPushEntity(lentity);
+            if (map != null) {
+                if (!map.containsKey("indexCounter")) {
+                    map.put("indexCounter", Long.valueOf(list.size()));
+                }else{
+                    map.put("indexCounter", map.get("indexCounter")+ list.size());
+                }
+            }
             for (PushEntity entity1 : list) {
                 if (entity1 == null) {
                     continue;
@@ -116,5 +125,24 @@ public class MonitorUtil {
                 }
             }
         }
+    }
+    
+    public static String getStopMonitorTime(long value){
+        if (value  < 60 ) {
+            return "还有" + value + "秒恢复";
+        }
+        if (value  > 60 && value < 3600 ) {
+            return  "还有" + ( value / 60 )  +"分钟恢复";
+        }
+        if (value  > 3600 && value < 86400 ) {
+            return "还有" + (value / 60 / 60) + "小时恢复";
+        }
+        if (value  > 86400 && value < 604800 ) {
+            return  "还有" +( value / 60 / 60 / 24) +"天恢复";
+        }
+        if (value  > 604800 && value < 2419200 ){
+            return "还有" +( value / 60 / 60 / 24 / 7 ) +"周恢复";
+        }
+        return "监控正常报警中";
     }
 }

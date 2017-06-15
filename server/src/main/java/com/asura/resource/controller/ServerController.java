@@ -11,30 +11,13 @@ import com.asura.monitor.configure.conf.MonitorCacheConfig;
 import com.asura.monitor.configure.controller.CacheController;
 import com.asura.monitor.graph.controller.CommentController;
 import com.asura.monitor.graph.entity.PushEntity;
-import com.asura.resource.entity.CmdbResourceCabinetEntity;
-import com.asura.resource.entity.CmdbResourceEntnameEntity;
-import com.asura.resource.entity.CmdbResourceGroupsEntity;
-import com.asura.resource.entity.CmdbResourceNetworkEntity;
-import com.asura.resource.entity.CmdbResourceOsTypeEntity;
-import com.asura.resource.entity.CmdbResourceServerEntity;
-import com.asura.resource.entity.CmdbResourceServerTypeEntity;
-import com.asura.resource.entity.CmdbResourceServiceEntity;
-import com.asura.resource.entity.CmdbResourceUserEntity;
+import com.asura.monitor.util.MonitorUtil;
+import com.asura.resource.configure.server.entity.CmdbResourceServerHistoryEntity;
+import com.asura.resource.configure.server.service.CmdbResourceServerHistoryService;
+import com.asura.resource.entity.*;
 import com.asura.resource.entity.report.ServerReportEntity;
-import com.asura.resource.service.CmdbResourceCabinetService;
-import com.asura.resource.service.CmdbResourceEntnameService;
-import com.asura.resource.service.CmdbResourceGroupsService;
-import com.asura.resource.service.CmdbResourceNetworkService;
-import com.asura.resource.service.CmdbResourceOsTypeService;
-import com.asura.resource.service.CmdbResourceServerService;
-import com.asura.resource.service.CmdbResourceServerTypeService;
-import com.asura.resource.service.CmdbResourceServiceService;
-import com.asura.resource.service.CmdbResourceUserService;
-import com.asura.util.DateUtil;
-import com.asura.util.HttpClientIpAddress;
-import com.asura.util.LdapAuthenticate;
-import com.asura.util.PermissionsCheck;
-import com.asura.util.RedisUtil;
+import com.asura.resource.service.*;
+import com.asura.util.*;
 import com.asura.util.network.ThreadPing;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Controller;
@@ -42,13 +25,12 @@ import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseBody;
 import redis.clients.jedis.Jedis;
+import sun.misc.Cache;
 
 import javax.servlet.http.HttpServletRequest;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
-
-import static com.asura.util.RedisUtil.app;
 
 
 /**
@@ -71,9 +53,6 @@ import static com.asura.util.RedisUtil.app;
 public class ServerController {
     @Autowired
     private CmdbResourceServerService service;
-
-    @Autowired
-    private LdapAuthenticate ldapAuthenticate;
 
     @Autowired
     private CmdbResourceCabinetService cabinetService;
@@ -107,11 +86,14 @@ public class ServerController {
     private SearchMap searchMapNull = new SearchMap();
 
     @Autowired
-    private CmdbResourceNetworkService networkService;
-
+    private CmdbResourceInventoryService inventoryService;
 
     @Autowired
     IndexController indexController;
+
+
+    @Autowired
+    private CmdbResourceServerHistoryService historyService;
 
     // 检查标记，如果为true，就不执行检查代码，避免重复执行
     private static boolean isCheck = false;
@@ -146,28 +128,31 @@ public class ServerController {
         PagingResult<CmdbResourceServiceEntity> services = serviceService.findAll(searchMap, pageBounds);
         model.addAttribute("service", services.getRows());
 
-        // vlan
-        // 服务类型
-        PagingResult<CmdbResourceNetworkEntity> networkEntityPagingResult = networkService.findAll(searchMap, pageBounds, "selectByAll");
-        model.addAttribute("vlans", networkEntityPagingResult.getRows());
         return model;
     }
 
 
     /**
-     * 列表
-     *
+     * @param model
+     * @param groupsName
+     * @param typeName
+     * @param time
+     * @param isOff
+     * @param inventoryId
+     * @param t
      * @return
      */
     @RequestMapping("list")
-    public String list(Model model,String groupsName, String typeName, String time, String isOff) {
-        model.addAttribute("groupsName",groupsName);
-        model.addAttribute("typeName",typeName);
-        model.addAttribute("time",time);
-        model.addAttribute("isOff",isOff);
-        model = CommentController.getGroups(model,groupsService);
-        model.addAttribute("username",userService.findAll(searchMapNull,PageResponse.getPageBounds(1000,1)).getRows());
-        model.addAttribute("entname",entnameService.findAll(searchMapNull,PageResponse.getPageBounds(1000,1)).getRows());
+    public String list(Model model, String groupsName, String typeName, String time, String isOff, String inventoryId, String t) {
+        model.addAttribute("groupsName", groupsName);
+        model.addAttribute("typeName", typeName);
+        model.addAttribute("time", time);
+        model.addAttribute("isOff", isOff);
+        model.addAttribute("inventoryId", inventoryId);
+        model.addAttribute("t", t);
+        model = CommentController.getGroups(model, groupsService);
+        model.addAttribute("username", userService.findAll(searchMapNull, PageResponse.getPageBounds(1000, 1)).getRows());
+        model.addAttribute("entname", entnameService.findAll(searchMapNull, PageResponse.getPageBounds(1000, 1)).getRows());
         return "/resource/configure/server/list";
     }
 
@@ -175,7 +160,7 @@ public class ServerController {
      * 未添加到资源表的设备
      */
     @RequestMapping("noRecord")
-    public String noRecord(){
+    public String noRecord() {
         return "/resource/configure/server/noRecord";
     }
 
@@ -187,14 +172,40 @@ public class ServerController {
     @RequestMapping(value = "noRecordData", produces = {"application/json;charset=UTF-8"})
     @ResponseBody
     public String noRecordData(int draw, int start, int length, HttpServletRequest request) {
-        PageBounds pageBounds = PageResponse.getPageBounds(length,start);
-        PagingResult<CmdbResourceServerEntity> result = service.findAll(searchMapNull,pageBounds,"selectNoRecord");
+        PageBounds pageBounds = PageResponse.getPageBounds(length, start);
+        PagingResult<CmdbResourceServerEntity> result = service.findAll(searchMapNull, pageBounds, "selectNoRecord");
         return PageResponse.getMap(result, draw);
+    }
+
+    /**
+     *
+     * @param inventoryId
+     * @param searchMap
+     */
+    void  getGrsoupsId(String inventoryId, SearchMap searchMap){
+        String groupsId;
+        // 通过库存获取组信息
+        if (CheckUtil.checkString(inventoryId)) {
+            if (inventoryId == null || inventoryId.equals("0")){
+                groupsId = "";
+                SearchMap inventoryMap = new SearchMap();
+                PagingResult<CmdbResourceInventoryEntity> inventoryEntitys = inventoryService.findAll(inventoryMap, PageResponse.getPageBounds(10000,1), "selectByAll");
+                for (CmdbResourceInventoryEntity entity: inventoryEntitys.getRows()){
+                    groupsId += entity.getGroupsId()+",";
+                }
+                groupsId = groupsId.replace(",,",",");
+            }else {
+                CmdbResourceInventoryEntity inventoryEntity = inventoryService.findById(Integer.valueOf(inventoryId), CmdbResourceInventoryEntity.class);
+                groupsId = inventoryEntity.getGroupsId();
+            }
+            searchMap.put("groups", groupsId.split(","));
+        }
     }
 
 
     /**
      * 列表数据
+     *
      * @param draw
      * @param start
      * @param length
@@ -206,63 +217,102 @@ public class ServerController {
      * @param userName
      * @param time
      * @param isOff
+     * @param inventoryId
+     * @param t
      * @return
      */
     @RequestMapping(value = "listData", produces = {"application/json;charset=UTF-8"})
     @ResponseBody
-    public String listData(int draw, int start, int length, HttpServletRequest request,String hostIp,String entname, String groupsName, String typeName, String userName,String time, String isOff,String hosts) {
-        PageBounds pageBounds ;
-        if(hostIp==null){
+    public String listData(int draw, int start, int length, HttpServletRequest request,
+                           String hostIp, String entname, String groupsName,
+                           String typeName, String userName,
+                           String time, String isOff, String hosts,
+                           String inventoryId, String t,
+                           String ipAddress
+    ) {
+        PageBounds pageBounds;
+        if (hostIp == null) {
             pageBounds = PageResponse.getPageBounds(length, start);
-        }else{
-            pageBounds = new PageBounds(1,1000);
+        } else {
+            pageBounds = new PageBounds(1, 1000);
         }
+
         SearchMap searchMap = new SearchMap();
 
+        // 通过库存获取组信息
+        getGrsoupsId(inventoryId, searchMap);
+        if (CheckUtil.checkString(t)){
+            searchMap.put("noGroups","1");
+            switch (t){
+                case "1":
+                    searchMap.put("buyNumber", "1");
+                    break;
+                case "2":
+                    searchMap.put("phyInventoryNumber", "1");
+                    break;
+                case "3":
+                    searchMap.put("phyUsed", "1");
+                    break;
+                case "4" :
+                    searchMap.put("phyVmNumber", "1");
+                    break;
+                case "5" :
+                    searchMap.put("vmNumber", "1");
+                    searchMap.remove("noGroups");
+                    break;
+                case "6" :
+                    searchMap.put("fromInventory", "1");
+                    break;
+            }
+        }
+
         String search = request.getParameter("search[value]");
-        if (search!=null&&search.length() > 2) {
+        if (search != null && search.length() > 2) {
             searchMap.put("search", search);
         }
-        if(hostIp!=null&&hostIp.length()>2){
+        if (hostIp != null && hostIp.length() > 2) {
             searchMap.put("hostIp", hostIp);
 
         }
-        if(typeName!=null&&typeName.length()>1){
-            searchMap.put("typeName",typeName);
+        if (CheckUtil.checkString(typeName)) {
+            searchMap.put("typeName", typeName);
         }
 
-        if(groupsName!=null&&groupsName.length()>1){
-              searchMap.put("groupsName",groupsName);
+        if (CheckUtil.checkString(groupsName)) {
+            searchMap.put("groupsName", groupsName);
         }
 
-        if(userName!=null&&userName.length()>1){
-            searchMap.put("userName",userName);
+        if (CheckUtil.checkString(userName)) {
+            searchMap.put("userName", userName);
         }
-        if(time!=null&&time.length()>1){
-            searchMap.put("time",time);
+        if (CheckUtil.checkString(time)) {
+            searchMap.put("time", time);
         }
-        if(entname!=null&&entname.length()>1){
-            searchMap.put("entName",entname);
+        if (CheckUtil.checkString(entname)) {
+            searchMap.put("entName", entname);
         }
-        if(hosts!=null&&hosts.length()>1){
+        if (CheckUtil.checkString(hosts)) {
             String[] host = hosts.split(",");
-            searchMap.put("hosts",host);
+            searchMap.put("hosts", host);
+        }
+        if (CheckUtil.checkString(ipAddress)){
+            searchMap.put("ipAddress", ipAddress);
         }
 
-        if(isOff!=null){
-            searchMap.put("isOff",isOff);
+        if (isOff != null) {
+            searchMap.put("isOff", isOff);
         }
         PagingResult<CmdbResourceServerEntity> result;
         result = service.findAll(searchMap, pageBounds, "selectByAll");
-        if(hostIp !=null && result.getTotal()<1){
+        if (hostIp != null && result.getTotal() < 1) {
             searchMap.remove("hostIp");
-            searchMap.put("ipAddress",hostIp);
+            searchMap.put("ipAddress", hostIp);
             result = service.findAll(searchMap, pageBounds, "selectByAll");
-            if(result!=null && result.getTotal()>0){
+            if (result != null && result.getTotal() > 0) {
                 int hostId = result.getRows().get(0).getHostId();
                 searchMap.remove("ipAddress");
-                searchMap.put("vmHostId",hostId);
-                result = service.findAll(searchMap,pageBounds, "selectByAll");
+                searchMap.put("vmHostId", hostId);
+                result = service.findAll(searchMap, pageBounds, "selectByAll");
             }
 
         }
@@ -276,10 +326,20 @@ public class ServerController {
      */
     @RequestMapping("add")
     public String add(Model model) {
-        model = getData(model);
+        getData(model);
         return "/resource/configure/server/add";
     }
 
+    /**
+     * 保存
+     *
+     * @return
+     */
+    @RequestMapping("saveServer")
+    @ResponseBody
+    public ResponseVo saveServer(CmdbResourceServerEntity entity, HttpServletRequest request) {
+        return save(entity, request);
+    }
 
     /**
      * 保存
@@ -310,45 +370,83 @@ public class ServerController {
         }
 
         // 其他组织传的宿主机ip地址
-        if(entity.getHostIpAddress()!=null){
+        if (entity.getHostIpAddress() != null) {
             SearchMap searchMap = new SearchMap();
-            searchMap.put("ipAddress",entity.getHostIpAddress());
-            List<CmdbResourceServerEntity> re = service.getDataList(searchMap,"selectByAll");
-            if(re!=null){
+            searchMap.put("ipAddress", entity.getHostIpAddress());
+            List<CmdbResourceServerEntity> re = service.getDataList(searchMap, "selectByAll");
+            if (re != null) {
                 entity.setHostId(re.get(0).getServerId());
             }
         }
 
+        entity.setIpAddress(entity.getIpAddress().trim());
+
         if (entity.getServerId() != null && serverId == 0) {
-            if(entity.getHostId()==0){
+            if (entity.getHostId() == 0) {
                 entity.setHostId(entity.getServerId());
             }
             service.update(entity);
         } else {
 
             entity.setCreateUser(user);
-            if(entity.getCreateUser()!=null){
+            if (entity.getCreateUser() != null) {
                 entity.setCreateUser(entity.getCreateUser());
             }
-            entity.setCreateTime(DateUtil.getDateStampInteter());
+            entity.setCreateTime(System.currentTimeMillis() / 1000);
             service.save(entity);
         }
-        CmdbResourceServerEntity c = entity;
-        Jedis jedis = new RedisUtil().getJedis();
+
+        String data = gson.toJson(entity);
+        CmdbResourceServerHistoryEntity historyEntity = gson.fromJson(data, CmdbResourceServerHistoryEntity.class);
+        historyService.save(historyEntity);
         // 主机的id
-        jedis.set(app + "_cache_hosts_id_"+c.getIpAddress() , c.getServerId()+"");
-        // 主机的业务线
-        jedis.set(app +"_" + MonitorCacheConfig.getCacheHostGroupsKey+c.getIpAddress() , c.getGroupsId()+"");
-        // 获取每个id对应的ip地址
-        jedis.set(app+"_"+MonitorCacheConfig.cacheHostIdToIp+ c.getServerId(), c.getIpAddress());
-        jedis.close();
-        indexController.logSave(request,"保存资产数据 " + entity.getIpAddress());
+        RedisUtil redisUtil = new RedisUtil();
+        cacheController.setServerInfoCache(service, serverId+"", null);
+        redisUtil.set(MonitorCacheConfig.getCacheHostGroupsKey + entity.getIpAddress(), entity.getGroupsId() + "");
+        redisUtil.set(MonitorCacheConfig.cacheHostIdToIp + entity.getServerId(), entity.getIpAddress());
+        redisUtil.set(MonitorCacheConfig.hostsIdKey + entity.getIpAddress(), entity.getServerId() + "");
+        indexController.logSave(request, "保存资产数据 " + entity.getIpAddress() + gson.toJson(entity));
         return ResponseVo.responseOk(null);
+    }
+
+
+    /**
+     * 停止监控
+     * @param serverId
+     * @param stopTime
+     */
+    @RequestMapping("stopMonitorSave")
+    @ResponseBody
+    public String stopMonitor(String serverId, String stopTime, HttpServletRequest request){
+        RedisUtil redisUtil = new RedisUtil();
+        String key = MonitorCacheConfig.cacheStopServer.concat(serverId);
+        redisUtil.del(key);
+        redisUtil.setex(key,Integer.valueOf(stopTime), "1");
+        indexController.logSave(request , "停止监控报警"+ serverId);
+        return "ok";
+    }
+
+    /**
+     * 获取监控停止还有多长时间过期
+     * @param serverId
+     */
+    @RequestMapping(value = "getStopMonitorTime", produces = {"application/json;charset=UTF-8"})
+    @ResponseBody
+    public ResponseVo getStopMonitorTime(String serverId){
+        RedisUtil redisUtil = new RedisUtil();
+        String key = MonitorCacheConfig.cacheStopServer.concat(serverId);
+        String result =  redisUtil.get(key);
+        if (CheckUtil.checkString(result)){
+            Jedis jedis = redisUtil.getJedis();
+            long value = jedis.ttl(RedisUtil.app+"_"+key);
+            String data =  MonitorUtil.getStopMonitorTime(value);
+            return ResponseVo.responseOk(data);
+        }
+            return ResponseVo.responseOk("监控正常报警中");
     }
 
     /**
      * @param id
-     *
      * @return
      */
     @RequestMapping("detail")
@@ -356,9 +454,21 @@ public class ServerController {
         CmdbResourceServerEntity result = service.findById(id, CmdbResourceServerEntity.class);
         model = getData(model);
         model.addAttribute("configs", result);
+        String buyUserId = result.getBuyUser();
+        if (CheckUtil.checkString(buyUserId) && !buyUserId.trim().equals("0")) {
+            CmdbResourceGroupsEntity groupsEntity = groupsService.findById(Integer.valueOf(buyUserId), CmdbResourceGroupsEntity.class);
+            model.addAttribute("buyUserId", groupsEntity.getGroupsId());
+            result.setBuyUser(groupsEntity.getGroupsName());
+        }
+        String useUserId = result.getUseUser();
+        if (CheckUtil.checkString(useUserId) && !useUserId.trim().equals("0")) {
+            CmdbResourceGroupsEntity groupsEntity = groupsService.findById(Integer.valueOf(useUserId), CmdbResourceGroupsEntity.class);
+            model.addAttribute("useUserId", groupsEntity.getGroupsId());
+            result.setUseUser(groupsEntity.getGroupsName());
+        }
 
         SearchMap searchMap = new SearchMap();
-        searchMap.put("serverId",result.getServerId());
+        searchMap.put("serverId", result.getServerId());
         // 宿主机的信息
         java.util.List<CmdbResourceServerEntity> hosts = service.findHosts(searchMap);
         model.addAttribute("hosts", hosts);
@@ -374,43 +484,36 @@ public class ServerController {
 
     /**
      * 列表数据
+     *
      * @return
      */
     @RequestMapping(value = "getGroupsUsedNumber", produces = {"application/json;charset=UTF-8"})
     @ResponseBody
     public String getGroupsUsedNumber(int draw, int start, int length, String groupsIds) {
-        PageBounds pageBounds = PageResponse.getPageBounds(length, start);
         SearchMap searchMap = new SearchMap();
-        if (groupsIds!=null&&groupsIds.length()>0){
+        if (CheckUtil.checkString(groupsIds)) {
             String[] groups = groupsIds.split(",");
             searchMap.put("groups", groups);
         }
-        List<CmdbResourceServerEntity> result = service.getDataList(searchMap,"getGroupsUsedNumber");
+        List<CmdbResourceServerEntity> result = service.getDataList(searchMap, "getGroupsUsedNumber");
         return PageResponse.getList(result, draw);
     }
 
     /**
      * 删除资产数据
+     *
      * @return
      */
-    @RequestMapping(value = "delete", produces = {"application/json;charset=UTF-8"})
+    @RequestMapping(value = "deleteSave", produces = {"application/json;charset=UTF-8"})
     @ResponseBody
     public ResponseVo delete(int id, HttpServletRequest request) {
-        String user = permissionsCheck.getLoginUser(request.getSession());
-        if (user.length()<2){
-            return ResponseVo.responseError("请登陆后操作");
-        }
-        String dept = ldapAuthenticate.getSignUserInfo("department", "sAMAccountName=" + user);
         CmdbResourceServerEntity resourceServerEntity = service.findById(id, CmdbResourceServerEntity.class);
-        if (! user.equals("admin") && ! dept.contains("运维")){
-            return ResponseVo.responseError("no permissions");
-        }
         RedisUtil redisUtil = new RedisUtil();
-        redisUtil.del(MonitorCacheConfig.cacheHostIsUpdate+id);
-        redisUtil.del(MonitorCacheConfig.hostsIdKey+id);
-        redisUtil.del(MonitorCacheConfig.cacheHostIdToIp+id);
+        redisUtil.del(MonitorCacheConfig.cacheHostIsUpdate + id);
+        redisUtil.del(MonitorCacheConfig.hostsIdKey + id);
+        redisUtil.del(MonitorCacheConfig.cacheHostIdToIp + id);
         service.delete(resourceServerEntity);
-        indexController.logSave(request,"删除资产数据 " + gson.toJson(resourceServerEntity));
+        indexController.logSave(request, "删除资产数据 " + gson.toJson(resourceServerEntity));
         cacheController.cacheGroups(groupsService, service);
         return ResponseVo.responseOk(null);
     }
@@ -453,10 +556,10 @@ public class ServerController {
     /**
      * 按
      */
-    public ArrayList setServerEntity(List<CmdbResourceServerEntity> result){
+    public ArrayList setServerEntity(List<CmdbResourceServerEntity> result) {
         ArrayList list = new ArrayList();
         ServerReportEntity entity;
-        for(CmdbResourceServerEntity c:result){
+        for (CmdbResourceServerEntity c : result) {
             entity = new ServerReportEntity();
             entity.setName(c.getTypeName());
             entity.setY(c.getCnt());
@@ -475,47 +578,50 @@ public class ServerController {
      * counterMemory
      * countService
      * 按环境
+     *
      * @returncount
      */
-    @RequestMapping(value = "countDataReport",produces = {"application/json;charset=utf-8"})
+    @RequestMapping(value = "countDataReport", produces = {"application/json;charset=utf-8"})
     @ResponseBody
-    public String countDataReport(String type, String entName){
+    public String countDataReport(String type, String entName, String inventoryId) {
         SearchMap searchMap = new SearchMap();
-        if(entName!=null&&entName.length()>1) {
+        if (CheckUtil.checkString(entName)) {
             searchMap.put("entName", entName);
         }
-        List<CmdbResourceServerEntity> result = service.getDataList(searchMap,type);
+        getGrsoupsId(inventoryId, searchMap);
+        List<CmdbResourceServerEntity> result = service.getDataList(searchMap, type);
         ArrayList list = setServerEntity(result);
         return gson.toJson(list);
     }
 
     /**
      * 探测服务器是否活着
+     *
      * @return
      */
     @RequestMapping("checkActive")
     @ResponseBody
-    public String checkActive() throws Exception{
-        if(!isCheck) {
+    public String checkActive() throws Exception {
+        if (!isCheck) {
             List<CmdbResourceServerEntity> result = service.getDataList(searchMapNull, "selectByAll");
             ArrayList ipList = new ArrayList();
             ArrayList upList = new ArrayList();
             ArrayList downList = new ArrayList();
-            for (CmdbResourceServerEntity entity:result){
+            for (CmdbResourceServerEntity entity : result) {
                 ipList.add(entity.getIpAddress());
             }
-            ThreadPing ping = new ThreadPing(ipList, upList, downList,255);
+            ThreadPing ping = new ThreadPing(ipList, upList, downList, 255);
             ping.startPing();
             SearchMap map = new SearchMap();
             map.put("status", 1);
             map.put("hosts", upList);
-            if (upList.size() > 0 ) {
+            if (upList.size() > 0) {
                 service.updatePing(map);
             }
             SearchMap downMap = new SearchMap();
             downMap.put("status", 0);
             downMap.put("hosts", downList);
-            if (downList.size()>0) {
+            if (downList.size() > 0) {
                 service.updatePing(downMap);
             }
         }
@@ -524,19 +630,20 @@ public class ServerController {
 
     /**
      * 自动生成组5个组,每组1000个机器
+     *
      * @return
      */
-    int autoMakeGroups(){
+    int autoMakeGroups() {
         String groupsName = "自动生成组1";
         SearchMap searchMap = new SearchMap();
         searchMap.put("groupsName", groupsName);
         PageBounds pageBounds = PageResponse.getPageBounds(3, 1);
         PagingResult<CmdbResourceGroupsEntity> result = groupsService.findAll(searchMap, pageBounds);
         if (result.getTotal() < 1) {
-             for (int i = 1; i < 3 ; i++ ) {
+            for (int i = 1; i < 3; i++) {
                 CmdbResourceGroupsEntity entity = new CmdbResourceGroupsEntity();
                 entity.setCreateTime(DateUtil.getDateStampInteter());
-                entity.setGroupsName("自动生成组"+i);
+                entity.setGroupsName("自动生成组" + i);
                 groupsService.save(entity);
             }
         }
@@ -548,16 +655,17 @@ public class ServerController {
 
     /**
      * 生成系统类型
+     *
      * @return
      */
-    int autoMakeOs(String os){
+    int autoMakeOs(String os) {
         SearchMap searchMap = new SearchMap();
         searchMap.put("os", os);
         PageBounds pageBounds = PageResponse.getPageBounds(2, 1);
         PagingResult<CmdbResourceOsTypeEntity> result = osTypeService.findAll(searchMap, pageBounds);
-        if (result.getTotal() > 0 ){
+        if (result.getTotal() > 0) {
             return result.getRows().get(0).getOsId();
-        }else{
+        } else {
             CmdbResourceOsTypeEntity entity = new CmdbResourceOsTypeEntity();
             entity.setOsName(os);
             osTypeService.save(entity);
@@ -568,16 +676,17 @@ public class ServerController {
 
     /**
      * 自动生成用户
+     *
      * @return
      */
-    int autoMakeUser(){
+    int autoMakeUser() {
         SearchMap searchMap = new SearchMap();
         searchMap.put("username", "admin");
         PageBounds pageBounds = PageResponse.getPageBounds(2, 1);
         PagingResult<CmdbResourceUserEntity> result = userService.findAll(searchMap, pageBounds);
-        if (result.getTotal() > 0 ){
+        if (result.getTotal() > 0) {
             return result.getRows().get(0).getUserId();
-        }else{
+        } else {
             CmdbResourceUserEntity entity = new CmdbResourceUserEntity();
             entity.setUserName("admin");
             entity.setGroupsId(autoMakeGroups());
@@ -589,15 +698,16 @@ public class ServerController {
 
     /**
      * 自动生产环境
+     *
      * @return
      */
-    int autoMakeEnt(){
+    int autoMakeEnt() {
         SearchMap searchMap = new SearchMap();
         searchMap.put("entname", "自动环境");
         PagingResult<CmdbResourceEntnameEntity> result = entnameService.findAll(searchMap, PageResponse.getPageBounds(2, 1));
-        if (result.getTotal() > 0 ){
+        if (result.getTotal() > 0) {
             return result.getRows().get(0).getEntId();
-        }else{
+        } else {
             CmdbResourceEntnameEntity entnameEntity = new CmdbResourceEntnameEntity();
             entnameEntity.setEntName("自动环境");
             entnameService.save(entnameEntity);
@@ -608,15 +718,16 @@ public class ServerController {
 
     /**
      * 自动生产服务类型
+     *
      * @return
      */
-    int autoMakeServerType(){
+    int autoMakeServerType() {
         SearchMap searchMap = new SearchMap();
         searchMap.put("typeName", "未知");
         PagingResult<CmdbResourceServerTypeEntity> result = serverTypeService.findAll(searchMap, PageResponse.getPageBounds(2, 1));
-        if (result.getTotal() > 0 ){
+        if (result.getTotal() > 0) {
             return result.getRows().get(0).getTypeId();
-        }else{
+        } else {
             CmdbResourceServerTypeEntity typeEntity = new CmdbResourceServerTypeEntity();
             typeEntity.setTypeName("未知");
             serverTypeService.save(typeEntity);
@@ -627,15 +738,16 @@ public class ServerController {
 
     /**
      * 自动生产服务
+     *
      * @return
      */
-    int autoMakeService(){
+    int autoMakeService() {
         SearchMap searchMap = new SearchMap();
         searchMap.put("serviceName", "未知");
         PagingResult<CmdbResourceServiceEntity> result = serviceService.findAll(searchMap, PageResponse.getPageBounds(2, 1));
-        if (result.getTotal() > 0 ){
+        if (result.getTotal() > 0) {
             return result.getRows().get(0).getServiceId();
-        }else{
+        } else {
             CmdbResourceServiceEntity serviceEntity = new CmdbResourceServiceEntity();
             serviceEntity.setServiceName("未知");
             serviceService.save(serviceEntity);
@@ -646,15 +758,16 @@ public class ServerController {
 
     /**
      * 自动生产机房
+     *
      * @return
      */
-    int autoMakeCabinet(){
+    int autoMakeCabinet() {
         SearchMap searchMap = new SearchMap();
         searchMap.put("cabinetName", "未知");
         List<CmdbResourceCabinetEntity> result = cabinetService.selectCabinetName(searchMap, "selectCabinetName");
-        if (result.size() > 0 ){
+        if (result.size() > 0) {
             return result.get(0).getCabinetId();
-        }else{
+        } else {
             CmdbResourceCabinetEntity cabinetEntity = new CmdbResourceCabinetEntity();
             cabinetEntity.setCabinetName("未知");
             cabinetService.save(cabinetEntity);
@@ -666,17 +779,18 @@ public class ServerController {
 
     /**
      * 自动上传cmdb数据
+     *
      * @param entity
      * @return
      */
     @RequestMapping("auto")
     @ResponseBody
-    public ResponseVo autoCmdb(PushEntity entity, HttpServletRequest request){
+    public ResponseVo autoCmdb(PushEntity entity, HttpServletRequest request) {
         String ip = HttpClientIpAddress.getIpAddr(request);
         SearchMap searchMap = new SearchMap();
         searchMap.put("ipAddress", ip);
         List<CmdbResourceServerEntity> serverEntity = service.getDataList(searchMap, "selectServerid");
-        if (serverEntity.size() > 0 ){
+        if (serverEntity.size() > 0) {
             return ResponseVo.responseOk("ok");
         }
         CmdbResourceServerEntity resourceServerEntity = new CmdbResourceServerEntity();
@@ -687,8 +801,8 @@ public class ServerController {
         resourceServerEntity.setIpAddress(ip);
         resourceServerEntity.setOsId(autoMakeOs(entity.getOs()));
         resourceServerEntity.setEntId(autoMakeEnt());
-        resourceServerEntity.setUserId(autoMakeUser()+"");
-        resourceServerEntity.setServiceId(autoMakeService()+"");
+        resourceServerEntity.setUserId(autoMakeUser() + "");
+        resourceServerEntity.setServiceId(autoMakeService() + "");
         resourceServerEntity.setTypeId(autoMakeServerType());
         resourceServerEntity.setDescription("自动上报");
         resourceServerEntity.setHostId(0);

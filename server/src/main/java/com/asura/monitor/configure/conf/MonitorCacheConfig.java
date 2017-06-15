@@ -1,5 +1,7 @@
 package com.asura.monitor.configure.conf;
 
+import com.asura.framework.base.paging.SearchMap;
+
 /**
  * <p></p>
  *
@@ -23,14 +25,8 @@ public class MonitorCacheConfig {
     // 存放有配置的主机的配置信息
     public static final String cacheConfigureHostsListKey = "cache_configure_hosts_list";
 
-    // 存放有配置的组的信息组 cache_configure_groups_list_groupsId
-    public static final String cacheConfigureGroupsListKey = "cache_configure_groups_list";
-
     // 存放主机的配置文件， 里面放的配置 cache_host_configure_hostId
     public static final String cacheHostCnfigureKey = "cache_host_configure_";
-
-    // 存放组的配置文件，里面放的配置
-    public static final String cacheGroupsConfigureKey = "cache_groups_configure_";
 
     // 项目缓存 cache_item_itemId CACHE_ITEM_KEY
     public static final String cacheItemKey = "cache_item_";
@@ -59,17 +55,11 @@ public class MonitorCacheConfig {
     // 保存所有host的id,有效的监控, ageng可以从这里判断是否需要开启监控
     public static final String cacheAllHostIsValid = "cache_all_host_is_valid";
 
-    // 保存所有groups的id,有效的监控, ageng可以从这里判断是否需要开启监控
-    public static final String cacheAllGroupsIsValid = "cache_all_groups_is_valid";
-
     // 存放每个host id的组的id,能获取到自己的组 cache_host_groups_hostID
     public static final String cacheHostGroupsKey = "cache_host_groups_";
 
     // 存放每个host id对应的所有配置文件id cache_host_config_HostId
     public static final String cacheHostConfigKey = "cache_host_config_";
-
-    // 存放每个组对应的所有配置文件
-    public static final String cacheGroupConfigKey = "cache_group_config_";
 
     // 存放每个主机的业务线 cache_get_cache_host_groups_ip
     public static final String getCacheHostGroupsKey = "cache_get_cache_host_groups_";
@@ -151,5 +141,54 @@ public class MonitorCacheConfig {
 
     // 2017-03-30 _groupsId
     public static final String cacheServerAdmin = "cache_monitor_server_admin_";
+
+    // 停止报警 _serverId
+    public static final String cacheStopServer = "cache_monitor_stop_server_";
+
+    // 停止报警 _index_name
+    public static final String cacheStopIndexName = "cache_monitor_stop_index_name_";
+
+    // 停止报警 _entId
+    public static final String cacheStopEntname = "cache_monitor_stop_entname_";
+
+    // 停止报警 _cabinetId
+    public static final String cacheStopCabinet = "cache_monitor_stop_cabinet_";
+
+    // 停止报警 _userId
+    public static final String cacheStopUser = "cache_monitor_stop_usert_";
+
+    // 停止报警 _groupsId
+    public static final String cacheStopGroups = "cache_monitor_stop_groups_";
+
+    // 停止报警 _floorId
+    public static final String cacheStopFloor = "cache_monitor_stop_floor_";
+
+    // 停止报警 _serverId
+    public static final String cacheStopHosts = "cache_monitor_stop_hosts_";
+
+    // 停止报警 _itemId
+    public static final String cacheStopItem = "cache_monitor_stop_item_";
+
+    // 停止报警 _scriptsId
+    public static final String cacheStopScripts = "cache_monitor_stop_scripts_";
+
+    // 存储设置了要停止的数据
+    public static final String cacheStopMonitorData  = "cache_stop_monitor_data";
+
+    // 存放某个服务器的信息,环境，机柜,物理机等信息 _serverId, Map 类型
+    public static final String cacheServerInfo = "cache_stop_server_info_";
+
+    // 缓冲环境信息 _entId
+    public static final String cacheEntnameInfo = "cache_stop_entname_info_";
+    // 缓冲机柜信息
+    public static final String cacheCabinetInfo = "cache_stop_cabinet_info_";
+    // 缓冲机房信息
+    public static final String cacheFloorInfo = "cache_stop_floor_info_";
+    // 缓冲业务线
+    public static final String cacheGroupsInfo = "cache_stop_groups_info_";
+    // 缓冲负责人
+    public static final String cacheUserInfo = "cache_stop_user_info_";
+    // 缓冲脚本
+    public static final String cacheScriptInfo = "cache_stop_script_info_";
 
 }

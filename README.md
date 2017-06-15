@@ -24,7 +24,9 @@
 14、支持任何指标数据多条件筛选排序,资源使用情况一目了然<br>
 15、集群数据分析,任何指标求和,平均<br>
 16、支持项目模板导入导出<br>
-17、自定义监控支持克隆配置
+17、自定义监控支持克隆配置<br>
+18、支持grafana风格图像自定义展示
+19、支持对单个主机停止报警,多时间段内
 </br>
 
 为国内用户下载方便，同步更新开源中国<br>
@@ -52,6 +54,20 @@
 <b>大图显示</b></br>
 <br>
 ![image](https://raw.githubusercontent.com/AsuraTeam/monitor/master/images/img12.png)
+<br>
+<b>grafana风格大屏展示</b></br>
+<br>
+![image](https://raw.githubusercontent.com/AsuraTeam/monitor/master/images/20.png)
+<br>
+![image](https://raw.githubusercontent.com/AsuraTeam/monitor/master/images/21.png)
+<br>
+![image](https://raw.githubusercontent.com/AsuraTeam/monitor/master/images/22.png)
+<br>
+![image](https://raw.githubusercontent.com/AsuraTeam/monitor/master/images/23.png)
+<br>
+![image](https://raw.githubusercontent.com/AsuraTeam/monitor/master/images/24.png)
+<br>
+![image](https://raw.githubusercontent.com/AsuraTeam/monitor/master/images/25.png)
 <br>
 <b>多维数据显示(任何机器任何数据组合对比)</b></br>
 <br>

@@ -2,7 +2,9 @@ package com.asura.monitor.configure.controller;
 
 import com.asura.framework.base.paging.PagingResult;
 import com.asura.framework.base.paging.SearchMap;
+import com.asura.framework.dao.mybatis.paginator.domain.PageBounds;
 import com.google.gson.Gson;
+import com.asura.common.controller.IndexController;
 import com.asura.common.response.PageResponse;
 import com.asura.monitor.configure.conf.MonitorCacheConfig;
 import com.asura.monitor.configure.entity.MonitorConfigureEntity;
@@ -21,25 +23,32 @@ import com.asura.monitor.configure.service.MonitorItemService;
 import com.asura.monitor.configure.service.MonitorMessageChannelService;
 import com.asura.monitor.configure.service.MonitorScriptsService;
 import com.asura.monitor.configure.service.MonitorTemplateService;
+import com.asura.monitor.configure.util.ConfigureUtil;
 import com.asura.monitor.graph.util.FileRender;
 import com.asura.monitor.graph.util.FileWriter;
+import com.asura.resource.controller.FloorController;
+import com.asura.resource.entity.*;
+import com.asura.resource.service.*;
+import com.asura.util.CheckUtil;
 import com.asura.util.RedisUtil;
-import com.asura.resource.entity.CmdbResourceGroupsEntity;
-import com.asura.resource.entity.CmdbResourceServerEntity;
-import com.asura.resource.service.CmdbResourceGroupsService;
-import com.asura.resource.service.CmdbResourceServerService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Controller;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseBody;
 import redis.clients.jedis.Jedis;
+import sun.misc.Cache;
 
+import javax.servlet.http.HttpServletRequest;
 import java.io.File;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+
+import static com.asura.monitor.configure.conf.MonitorCacheConfig.cacheConfigureHostsListKey;
 
 /**
  * <p></p>
@@ -57,6 +66,8 @@ import java.util.Map;
 @Controller
 @RequestMapping("/monitor/configure/")
 public class CacheController {
+
+    private final Logger logger = LoggerFactory.getLogger(CacheController.class);
 
     @Autowired
     private MonitorItemService itemService;
@@ -88,8 +99,28 @@ public class CacheController {
     @Autowired
     private MonitorMessageChannelService channelService;
 
+    @Autowired
+    private IndexController logSave;
+
+    @Autowired
+    private CmdbResourceFloorService floorService;
+
+    @Autowired
+    private CmdbResourceEntnameService entnameService;
+
+    @Autowired
+    private CmdbResourceCabinetService cabinetService;
+
+    @Autowired
+    private CmdbResourceUserService userService;
+
+    @Autowired
+    private CmdbResourceGroupsService resourceGroupsService;
+
     private Gson gson = new Gson();
     private RedisUtil redisUtil = new RedisUtil();
+    final SearchMap searchMap = new SearchMap();
+    final PageBounds pageBounds = PageResponse.getPageBounds(10000,1);
 
     /**
      * 将item的数据写入到cache
@@ -146,10 +177,25 @@ public class CacheController {
     @ResponseBody
     public String setConfigureCache() {
         SearchMap searchMap = new SearchMap();
+        HashSet hostSet = new HashSet();
         PagingResult<MonitorConfigureEntity> result = configureService.findAll(searchMap, PageResponse.getPageBounds(10000000, 1), "selectByAll");
         for (MonitorConfigureEntity m : result.getRows()) {
             redisUtil.set(MonitorCacheConfig.cacheConfigureKey + m.getConfigureId(), gson.toJson(m));
+            try {
+                ConfigureUtil configureUtil = new ConfigureUtil();
+                hostSet = configureUtil.makeHostMonitorTag(m, hostSet);
+                configureUtil.setUpdateMonitor(m);
+            }catch (Exception e){
+
+            }
         }
+        ArrayList arrayList = new ArrayList();
+        ConfigureUtil configureUtil = new ConfigureUtil();
+        MonitorConfigureEntity entity = new MonitorConfigureEntity();
+        entity.setIsValid(1);
+        HashSet<String> cacheHosts = gson.fromJson(redisUtil.get(cacheConfigureHostsListKey), HashSet.class);
+        hostSet = configureUtil.setHostGroupData(cacheHosts, hostSet, entity, arrayList);
+        redisUtil.set(cacheConfigureHostsListKey, gson.toJson(hostSet));
         return "ok";
     }
     /**
@@ -208,10 +254,13 @@ public class CacheController {
     @RequestMapping("contacts/setCache")
     @ResponseBody
     public String setContactCache() {
-        SearchMap searchMap = new SearchMap();
-        PagingResult<MonitorContactsEntity> result = contactsService.findAll(searchMap, PageResponse.getPageBounds(10000000, 1), "selectByAll");
-        for (MonitorContactsEntity m : result.getRows()) {
-            redisUtil.set(MonitorCacheConfig.cacheContactKey + m.getContactsId(), gson.toJson(m));
+        try {
+            SearchMap searchMap = new SearchMap();
+            PagingResult<MonitorContactsEntity> result = contactsService.findAll(searchMap, PageResponse.getPageBounds(10000000, 1), "selectByAll");
+            for (MonitorContactsEntity m : result.getRows()) {
+                redisUtil.set(MonitorCacheConfig.cacheContactKey + m.getContactsId(), gson.toJson(m));
+            }
+        }catch (Exception e){
         }
         return "ok";
     }
@@ -287,7 +336,7 @@ public class CacheController {
                 if(!hostMap.containsKey(host)){
                     hostIdArr = new HashSet();
                 }else {
-                    hostIdArr = (HashSet)hostMap.get(host);
+                    hostIdArr = hostMap.get(host);
                 }
                 hostIdArr.add(m.getGroupsId());
                 hostMap.put(host,hostIdArr);
@@ -315,7 +364,7 @@ public class CacheController {
         if(!hostMap.containsKey(hostId)){
             conf = new HashSet();
         }else {
-            conf = (HashSet)hostMap.get(hostId);
+            conf = hostMap.get(hostId);
         }
         conf.add(configId);
         hostMap.put(hostId , conf);
@@ -332,12 +381,10 @@ public class CacheController {
         SearchMap searchMap = new SearchMap();
         searchMap.put("isValid",1);
         HashSet hostIds = new HashSet();
-        HashSet groupIds = new HashSet();
 
         // 存放每个主机拥有的所有配置文件id
         Map<String, HashSet> hostMap = new HashMap();
         // 存放每个组拥有的所有配置文件的ID
-        Map<String, HashSet> groupMap = new HashMap();
 
         PagingResult<MonitorConfigureEntity> result;
         try {
@@ -346,36 +393,34 @@ public class CacheController {
             result = configureService.findAll(searchMap, PageResponse.getPageBounds(1000000, 1), "selectByAll");
         }
         for (MonitorConfigureEntity m : result.getRows()) {
+            String[] hosts = null;
+            if(CheckUtil.checkString(m.getHosts()) && m.getMonitorHostsTp().equals("host")) {
 
-            if(m.getHosts()!=null) {
-                String[] hosts = m.getHosts().split(",");
-                for (String s : hosts) {
-                    if(s.length()<1){continue;}
-                    hostIds.add(s);
-                    hostMap = setGroupHostConfig(hostMap, m.getConfigureId()+"", s);
-                }
+                hosts = m.getHosts().split(",");
             }
+            // 设置组的信息
+            if(CheckUtil.checkString(m.getGname()) && m.getMonitorHostsTp().equals("groups")){
+                hosts = redisUtil.get(MonitorCacheConfig.cacheGroupsKey.concat(m.getGname())).split(",");
+                logger.info("获取到组配置信息 " + gson.toJson(hostIds));
+            }
+
+            for (String s : hosts) {
+                if(s.length() < 1){continue;}
+                hostIds.add(s);
+                hostMap = setGroupHostConfig(hostMap, m.getConfigureId()+"", s);
+            }
+
             for (Map.Entry<String, HashSet> entry : hostMap.entrySet()) {
-                jedis.set(RedisUtil.app+"_"+MonitorCacheConfig.cacheHostConfigKey + entry.getKey(), gson.toJson(entry.getValue()));
-            }
-
-            if(m.getGname()!=null){
-                String[] groups = m.getGname().split(",");
-                for (String s : groups) {
-                    if(s.length()<1){continue;}
-                    groupIds.add(s);
-                    // 将每个host拥有的配置写入到redis
-                    groupMap = setGroupHostConfig(groupMap, m.getConfigureId()+"", s);
+                try {
+                    jedis.set(RedisUtil.app + "_" + MonitorCacheConfig.cacheHostConfigKey + entry.getKey(), gson.toJson(entry.getValue()));
+                }catch (Exception e){
+                    jedis = redisUtil.getJedis();
+                    jedis.set(RedisUtil.app + "_" + MonitorCacheConfig.cacheHostConfigKey + entry.getKey(), gson.toJson(entry.getValue()));
                 }
-            }
-            for (Map.Entry<String, HashSet> entry : groupMap.entrySet()) {
-                jedis.set(RedisUtil.app+"_"+MonitorCacheConfig.cacheGroupConfigKey + entry.getKey(), gson.toJson(entry.getValue()));
             }
         }
         String allHost = gson.toJson(hostIds);
         redisUtil.set(MonitorCacheConfig.cacheAllHostIsValid, allHost);
-        String allGroup = gson.toJson(groupIds);
-        redisUtil.set(MonitorCacheConfig.cacheAllGroupsIsValid, allGroup);
         return "ok";
     }
 
@@ -434,6 +479,97 @@ public class CacheController {
     }
 
     /**
+     * 缓冲每个服务器的相信新
+     */
+    @RequestMapping("/cache/serverInfoSave")
+    @ResponseBody
+    public String setServerInfoCache(CmdbResourceServerService resourceServerService, String serverId, HttpServletRequest request){
+        List<CmdbResourceServerEntity> list;
+        SearchMap searchMap = new SearchMap();
+        if (CheckUtil.checkString(serverId)){
+            searchMap.put("serverId", serverId);
+        }
+        try {
+            list = resourceServerService.getDataList(searchMap, "selectServerInfo");
+        }catch (Exception e){
+            list = service.getDataList(searchMap, "selectServerInfo");
+        }
+        Jedis jedis = redisUtil.getJedis();
+
+        String key;
+        for (CmdbResourceServerEntity entity: list){
+            key = RedisUtil.app.concat("_").concat(MonitorCacheConfig.cacheServerInfo).concat(entity.getServerId()+"");
+            logger.info(key);
+            jedis.set(key, gson.toJson(entity));
+        }
+        jedis.close();
+        if (request != null){
+            logSave.logSave(request, "生成服务器缓冲信息");
+        }
+        return "ok";
+    }
+
+    /**
+     * 缓冲机房信息
+     */
+    public void cacheFloor(){
+       PagingResult<CmdbResourceFloorEntity> list = floorService.findAll(searchMap, pageBounds);
+       for (CmdbResourceFloorEntity floorEntity: list.getRows()){
+           redisUtil.set(MonitorCacheConfig.cacheFloorInfo+floorEntity.getFloorId()+"", floorEntity.getFloorAddress());
+       }
+    }
+
+    /**
+     * 缓冲环境
+     */
+    public void cacheEntname(){
+        PagingResult<CmdbResourceEntnameEntity> list = entnameService.findAll(searchMap, pageBounds);
+        for (CmdbResourceEntnameEntity entity: list.getRows()){
+            redisUtil.set(MonitorCacheConfig.cacheEntnameInfo+entity.getEntId()+"", entity.getEntName());
+        }
+    }
+
+    /**
+     * 缓冲负责人信息
+     */
+    public void cacheUsers(){
+        PagingResult<CmdbResourceUserEntity> list = userService.findAll(searchMap, pageBounds);
+        for (CmdbResourceUserEntity entity: list.getRows()){
+            redisUtil.set(MonitorCacheConfig.cacheUserInfo+entity.getUserId()+"", entity.getUserName());
+        }
+    }
+
+    /**
+     * 缓冲业务线数据
+     */
+    public void cacheGroups(){
+        PagingResult<CmdbResourceGroupsEntity> list = resourceGroupsService.findAll(searchMap, pageBounds);
+        for (CmdbResourceGroupsEntity entity: list.getRows()){
+            redisUtil.set(MonitorCacheConfig.cacheGroupsInfo+entity.getGroupsId()+"", entity.getGroupsName());
+        }
+    }
+
+    /**
+     * 缓冲机柜数据
+     */
+    public void cacheCabinet(){
+        PagingResult<CmdbResourceCabinetEntity> list = cabinetService.findAll(searchMap, pageBounds);
+        for (CmdbResourceCabinetEntity entity: list.getRows()){
+            redisUtil.set(MonitorCacheConfig.cacheCabinetInfo+entity.getCabinetId()+"", entity.getCabinetName());
+        }
+    }
+
+    /**
+     * 脚本信息缓冲
+     */
+    public void cacheScript(){
+        PagingResult<MonitorScriptsEntity> list = scriptsService.findAll(searchMap, pageBounds, "selectByAll");
+        for (MonitorScriptsEntity entity: list.getRows()){
+            redisUtil.set(MonitorCacheConfig.cacheCabinetInfo+entity.getScriptsId()+"", entity.getFileName());
+        }
+    }
+
+    /**
      * 生成所有的cache
      */
     @RequestMapping("cache/all")
@@ -442,6 +578,7 @@ public class CacheController {
         makeAllHostKey(null);
         setConfigureCache();
         setServerCache(service);
+        setServerInfoCache(service, null, null);
         setItemCache(itemService);
         setScriptCache(scriptsService);
         setContactGroupCache(contactGroupService);
@@ -449,6 +586,17 @@ public class CacheController {
         setGroupsCache();
         cacheGroups(cmdbResourceGroupsService, service);
         setMessagesCache(channelService);
+        try {
+            setContactCache();
+            cacheUsers();
+            cacheCabinet();
+            cacheGroups();
+            cacheEntname();
+            cacheFloor();
+            cacheScript();
+        }catch (Exception e){
+
+        }
         return "ok";
     }
 

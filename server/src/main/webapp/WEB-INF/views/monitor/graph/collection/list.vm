@@ -59,9 +59,10 @@
             if(is_all == "2"){
                 $.cookie("is_all_select", "2")
             }
-            for(i=0; i<ips.length-1; i++){
+            for(i=0; i<ips.length; i++){
                 newip += ips[i]+","
             }
+            newip = newip.substr(0, newip.length-1);
         }else{
             newip = ip
             $.cookie("is_all_select", "")

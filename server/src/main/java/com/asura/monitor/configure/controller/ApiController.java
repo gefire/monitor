@@ -4,6 +4,7 @@ import com.asura.framework.base.paging.PagingResult;
 import com.asura.framework.base.paging.SearchMap;
 import com.asura.framework.dao.mybatis.paginator.domain.PageBounds;
 import com.google.gson.Gson;
+import com.google.gson.reflect.TypeToken;
 import com.asura.common.response.PageResponse;
 import com.asura.common.response.ResponseVo;
 import com.asura.monitor.configure.conf.MonitorCacheConfig;
@@ -11,6 +12,7 @@ import com.asura.monitor.configure.conf.SevertityConfig;
 import com.asura.monitor.configure.entity.MonitorIndexAlarmEntity;
 import com.asura.monitor.configure.entity.MonitorMessageChannelEntity;
 import com.asura.monitor.configure.entity.MonitorMessagesEntity;
+import com.asura.monitor.configure.entity.MonitorPauseEntity;
 import com.asura.monitor.configure.service.MonitorIndexAlarmService;
 import com.asura.monitor.configure.service.MonitorMessageChannelService;
 import com.asura.monitor.configure.service.MonitorMessagesService;
@@ -22,6 +24,7 @@ import com.asura.monitor.monitor.controller.MonitorGlobaltController;
 import com.asura.monitor.report.entity.MonitorReportDayEntity;
 import com.asura.monitor.report.service.MonitorReportDayService;
 import com.asura.monitor.util.MonitorUtil;
+import com.asura.resource.entity.CmdbResourceServerEntity;
 import com.asura.util.Base64Util;
 import com.asura.util.CheckUtil;
 import com.asura.util.DateUtil;
@@ -36,8 +39,11 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Controller;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseBody;
+import sun.misc.Cache;
 
 import javax.servlet.http.HttpServletRequest;
+import java.lang.reflect.Type;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -90,6 +96,9 @@ public class ApiController {
 
     @Autowired
     private MonitorReportDayService reportDayService;
+
+    @Autowired
+    private MonitorPauseController pauseController;
 
     // 报错报警的参数信息，启动或更改时改数据
     private static Map<String, MonitorIndexAlarmEntity> alarmEntities;
@@ -285,16 +294,97 @@ public class ApiController {
     }
 
     /**
+     *
+     * @param serverId
+     * @param stopId
+     * @return
+     */
+    void checkServerStopInfo(String serverId, String stopId, ArrayList list, MonitorPauseEntity entity){
+        long closeTime = ((System.currentTimeMillis() / 1000 ) - entity.getCreateTime()) ;
+        if (closeTime <  Long.valueOf(entity.getPauseTime()) && serverId.equals(stopId) ) {
+            list.add(1);
+        }
+    }
+
+    /**
+     *
+     * @param serverId
+     * @param data
+     * @return
+     */
+    boolean testServerStopMonitor(String serverId, String data, String scriptsId){
+        try {
+            Type type = new TypeToken<ArrayList<MonitorPauseEntity>>() {
+            }.getType();
+            ArrayList sizeList = new ArrayList();
+            //  获取服务器信息
+            String serverInfo = redisUtil.get(MonitorCacheConfig.cacheServerInfo.concat(serverId));
+            if (CheckUtil.checkString(serverInfo)) {
+                CmdbResourceServerEntity serverEntity = gson.fromJson(serverInfo, CmdbResourceServerEntity.class);
+                ArrayList<MonitorPauseEntity> list = gson.fromJson(data, type);
+                for (MonitorPauseEntity entity : list) {
+                    // 脚本
+                    checkServerStopInfo(scriptsId, entity.getScriptsId(), list, entity);
+                    // 单个机器
+                    checkServerStopInfo(serverId, entity.getServerId()+"", sizeList, entity);
+                    // 环境
+                    checkServerStopInfo(serverEntity.getEntId() + "", entity.getServerId(), sizeList, entity);
+                    // 机柜
+                    checkServerStopInfo(serverEntity.getCabinetId() + "", entity.getCabinetId(), sizeList, entity);
+                    // 负责人
+                    checkServerStopInfo(serverEntity.getUserId() + "", entity.getUserId(), sizeList, entity);
+                    // 业务线
+                    checkServerStopInfo(serverEntity.getGroupsId() + "", entity.getGroupsId(), sizeList, entity);
+                    // 宿主机
+                    checkServerStopInfo(serverEntity.getHostId() + "", entity.getHostId(), sizeList, entity);
+                    // 机房
+                    checkServerStopInfo(serverEntity.getFloorId() + "", entity.getFloorId(), sizeList, entity);
+                }
+            }
+            if (sizeList.size() > 0) {
+                return true;
+            }
+        }catch (Exception e){
+            logger.error("计算是否停止报警失败" ,e);
+        }
+        return false;
+    }
+
+    /**
      * 发送消息
      *
      * @param messagesEntity
      */
     void sendMessages(MonitorMessagesEntity messagesEntity) {
+        String serverId = messagesEntity.getServerId()+"";
+
+        // 获取是否有存储在页面配置的暂停报警数据
+        String data = redisUtil.get(MonitorCacheConfig.cacheStopMonitorData);
+        boolean isStopMonitor = false;
+        if (CheckUtil.checkString(data) && data.length() > 10){
+            //  先去清除掉过期的数据
+            try {
+                pauseController.listData();
+            }catch (Exception e){
+                logger.error("在api设置监控暂停数据报错", e);
+            }
+            isStopMonitor = testServerStopMonitor(serverId, data, messagesEntity.getScriptsId()+"");
+        }
+
+        //  判断是否停止报警, 在资源服务器管理配置的
+        String result = redisUtil.get(MonitorCacheConfig.cacheStopServer.concat(serverId));
+        if (CheckUtil.checkString(result) || isStopMonitor){
+            logger.info("该服务器已停止报警，不在发送报警信息" + gson.toJson(messagesEntity));
+            messagesEntity.setEmail("服务停止报警,没有发出信息,只记录" );
+            messagesEntity.setMessages(messagesEntity.getMessages() + " Debug Info:" + data);
+            messagesEntity.setMobile("服务停止报警,没有发出信息,只记录");
+        }else{
+            sendEmail(messagesEntity);
+            sendMobile(messagesEntity);
+            sendDing(messagesEntity);
+            sendWeixin(messagesEntity);
+        }
         messagesService.save(messagesEntity);
-        sendEmail(messagesEntity);
-        sendMobile(messagesEntity);
-        sendDing(messagesEntity);
-        sendWeixin(messagesEntity);
     }
 
     /**
@@ -303,7 +393,6 @@ public class ApiController {
      * @param messagesEntity
      */
     void sendMonitorMessages(MonitorMessagesEntity messagesEntity) {
-//        MonitorMessagesEntity messagesEntity = gson.fromJson(queueData, MonitorMessagesEntity.class);
         if (messagesEntity != null) {
             // 报警开关
             String alarmSwitch = redisUtil.get(MonitorCacheConfig.cacheAlarmSwitch);
@@ -333,13 +422,32 @@ public class ApiController {
         }
     }
 
-    /**
-     * 从redis队列读取要发送的消息
-     */
-    void sendQueueMessages() {
-        // 获取队列的大小
-        Long queueLength = redisUtil.llen(MonitorCacheConfig.cacheAlarmQueueKey);
 
+    /**
+     *
+     * @param queueLength
+     */
+    void sendLongQueueMessages(Long queueLength){
+        List<MonitorMessagesEntity> monitorMessagesEntities = new ArrayList<>();
+        for (int i = 0; i < queueLength; i++) {
+            String queueData = redisUtil.rpop(MonitorCacheConfig.cacheAlarmQueueKey);
+            if (CheckUtil.checkString(queueData)) {
+                try {
+                    queueData = queueData.replace("\n", "<br>");
+                    MonitorMessagesEntity messagesEntity = gson.fromJson(queueData, MonitorMessagesEntity.class);
+                    monitorMessagesEntities.add(messagesEntity);
+                } catch (Exception e) {
+                    logger.error("合并发送报警失败:", e);
+                }
+            }
+        }
+    }
+
+    /**
+     *
+     * @param queueLength
+     */
+    void sendMinQueueMessages(Long queueLength){
         // 从队列获取报警的数据
         for (int i = 0; i < queueLength; i++) {
             String queueData = redisUtil.rpop(MonitorCacheConfig.cacheAlarmQueueKey);
@@ -350,9 +458,23 @@ public class ApiController {
                     MonitorMessagesEntity messagesEntity = gson.fromJson(queueData, MonitorMessagesEntity.class);
                     sendMonitorMessages(messagesEntity);
                 } catch (Exception e) {
-                    logger.info("发送报警失败:", e);
+                    logger.error("发送报警失败:", e);
                 }
             }
+        }
+    }
+
+    /**
+     * 从redis队列读取要发送的消息
+     */
+    void sendQueueMessages() {
+        // 获取队列的大小
+        Long queueLength = redisUtil.llen(MonitorCacheConfig.cacheAlarmQueueKey);
+        // 如果队列数据大于5的时候考虑做合并处理
+        if (queueLength > 50){
+            sendLongQueueMessages(queueLength);
+        }else {
+            sendMinQueueMessages(queueLength);
         }
     }
 

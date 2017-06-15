@@ -34,8 +34,9 @@
         }
 
     }
-    function f_check_IP(id)
-    {  var ip = document.getElementById(id).value;
+    function f_check_IP(ip)
+    {
+        //var ip = document.getElementById(id).value;
         var re=/^(\d+)\.(\d+)\.(\d+)\.(\d+)$/;//正则表达式
         if(re.test(ip))
         {
@@ -45,20 +46,18 @@
         return false;
     }
     function setIpAddress(value, select) {
-        if (!f_check_IP('add_ip_address_id') && !select){
-            parent.layer.msg("ip地址格式有误",  {icon:2})
-            return;
-        }
         old = $('#select_all_ip_textarea').val();
         olds = old.split("\n")
         news = ""
         is_exists = false
         for (i=0;i<olds.length;i++){
             if(olds[i].length<5){continue}
-            if (olds[i] != value ) {
-                news += olds[i] + "\n"
-            }else{
-                is_exists = true
+            if (!f_check_IP(olds[i]) && !select){
+                if (olds[i] != value ) {
+                    news += olds[i] + "\n"
+                }else{
+                    is_exists = true
+                }
             }
         }
         if(!is_exists){
@@ -166,7 +165,7 @@
                     </div>
                     <div class="col-sm-12" ></p></div>
                     <div class="col-sm-12" >
-                        <textarea class="form-control" readonly rows="12" id="select_all_ip_textarea">$!{ip}</textarea>
+                        <textarea class="form-control"  rows="12" onchange="setIpAddress($(this).val())"  id="select_all_ip_textarea">$!{ip}</textarea>
                     </div>
                 </div>
                 <div class="col-sm-12" style="margin-left:10px;">
@@ -435,6 +434,15 @@
         if(is_mline == "2"){
             url = url +"&mline=1"
         }
+        startT= $('#startSendTime').val()
+        endT = $('#endSendTime').val()
+        if(!startT){
+            startT = ""
+        }
+        if(!endT){
+            endT = ""
+        }
+        url += "&startT="+startT+"&endT="+endT
         $('#show_image_status_id').html($.cookie("s"))
         $('#iframepage').attr("src", url);
     }
@@ -532,7 +540,11 @@
         })
 
         cookieName = "selectImages"
-        $.cookie(cookieName, chk_value, {path:"/"});
+        if (chk_value.length > 0 ){
+            $.cookie(cookieName, chk_value, {path:"/"});
+        }else{
+            chk_value = $.cookie(cookieName);
+        }
 
         type = $('#img_type').val()
         ips =  get_all_ip()
@@ -559,7 +571,15 @@
         if(is_all_select == "2"){
             url = url + "&mline=1"
         }
-
+        startT= $('#startSendTime').val()
+        endT = $('#endSendTime').val()
+        if(!startT){
+            startT = ""
+        }
+        if(!endT){
+            endT = ""
+        }
+        url += "&startT="+startT+"&endT="+endT
         $('#iframepage').attr("src",url);
         if(img){
             $('#show_graph_imgages').modal("toggle")
@@ -592,13 +612,6 @@
         getCheckValue("","", value)
     }
 
-//    setTimeout(function () {
-//        realtime = $.cookie("is_realtime");
-//        if(realtime=="1"){
-//            return;
-//        }
-//        window.location.reload();
-//    },180000)
 
     function reinitIframe(){
         var iframe = document.getElementById("iframepage");

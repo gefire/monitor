@@ -1,8 +1,9 @@
-#include("/index/include.vm")
-<script src="/static/js/plugins/highcharts.js"></script>
+<!DOCTYPE html>
+#include("/index/dygraph.vm")
 <div id="image_all_id" style="  margin-top: 20px;">
-
 </div>
+<script>
+</script>
 <div id="image_all_id_realtime" style="margin-top: 20px;">
 </div>
 
@@ -25,7 +26,7 @@
                         </div>
                         <input type="hidden" id="${ipadd.replace(".", "_")}${name}${n.replace('---','').replace(".","_").replace(" ","")}BorderWidth" value="32">
                         <div class="animated pulse" id="${ipadd.replace(".", "_")}${name}${n.replace('---','').replace(".","_").replace(" ","")}"
-                             style="width: 100%;height: 240px;margin-bottom:5px;text-align:center;"><img width="20%" height="50%;" src="/static/images/loading.gif"></div>
+                             style="width: 100%;height: 270px;margin-bottom:5px;text-align:center;"><img width="20%" height="50%;" src="/static/images/loading.gif"></div>
                         <div style="margin-left:10px;margin-top:10px;display:none;" id="show_image_data_${ipadd.replace(".", "_")}${name}${n.replace('---','').replace(".","_").replace(" ","")}">
                             <table class="table  table-bordered table-hover dataTables-example" style="font-size:4px;padding:2px;">
                                 <tr>
@@ -70,9 +71,11 @@ is_range = $.cookie("is_range");
                     graph_min("1ab394", '${ipadd.replace(".", "_")}${name}${n.replace('---','').replace(" ","").replace(".","_")}', "${name} ${n.replace("SLASH","/").replace('---',' ')}", "${name} ${n.replace("SLASH","/").replace('---',' ')}", "/monitor/graph/historyData?ip=${ipadd}&name=${n}&dayNumber=$!{dayNumber}&type=$name","","$!{startT}","$!{endT}")
                 }
                 if(realtime=="1") {
-                    realtime_graph('${ipadd.replace(".", "_")}${name}${n.replace('---','').replace(" ","").replace(".","_")}', "$!{ip}", "$name", "$n")
+                  setTimeout(function () {
+                    realtime_graph('${ipadd.replace(".", "_")}${name}${n.replace('---','').replace(" ","").replace(".","_")}', "$!{ipadd}", "$name", "$n")
+                  },Math.round(Math.random()*10)*600)
                 }else if(is_range == "1"){
-                    stock_chart("1ab394", '${ipadd.replace(".", "_")}${name}${n.replace('---','').replace(" ","").replace(".","_")}', "${name} ${n.replace("SLASH","/").replace('---',' ')}", "${name} ${n.replace("SLASH","/").replace('---',' ')}", "/monitor/graph/historyData?ip=${ip}&name=${n}&dayNumber=$!{dayNumber}&type=$name","","$!{startT}","$!{endT}")
+                    graph_min("1ab394", '${ipadd.replace(".", "_")}${name}${n.replace('---','').replace(" ","").replace(".","_")}', "${name} ${n.replace("SLASH","/").replace('---',' ')}", "${name} ${n.replace("SLASH","/").replace('---',' ')}", "/monitor/graph/historyData?ip=${ip}&name=${n}&dayNumber=$!{dayNumber}&type=$name","","$!{startT}","$!{endT}","select")
 
                 }else{
                     graph_min("1ab394", '${ipadd.replace(".", "_")}${name}${n.replace('---','').replace(" ","").replace(".","_")}', "${name} ${n.replace("SLASH","/").replace('---',' ')}", "${name} ${n.replace("SLASH","/").replace('---',' ')}", "/monitor/graph/historyData?ip=${ipadd}&name=${n}&dayNumber=$!{dayNumber}&type=$name","area","$!{startT}","$!{endT}")
@@ -129,68 +132,4 @@ if (is_all_select){
 }
 
 
-function stock_chart(color, id, title, ytitle, url, chartype,lstartT,lendT) {
-
-    Highcharts.setOptions({
-        global: {
-            useUTC: false
-        }
-    });
-
-    startT= $('#startSendTime').val()
-    endT = $('#endSendTime').val()
-
-    if(!startT){
-        startT = ""
-    }
-    if(!endT){
-        endT = ""
-    }
-
-    if(lstartT){
-        startT=lstartT;
-        endT = lendT;
-    }
-    lineWidth = 3
-    lineWidthO = 5
-    if(startT){
-        lineWidth = 1
-        lineWidthO= 1
-    }
-
-
-    // Create the chart
-    $('#' + id).highcharts('StockChart', {
-        chart: {
-            type: "line",
-            zoomType: 'x',
-        },
-        rangeSelector: {
-            selected: 1,
-            height: 1
-        },
-
-        title: {
-            text: ""
-        },
-        legend: {
-            enabled: false
-        },
-        exporting: {
-            enabled: false
-        },
-        colors: ["#" + color],
-        scrollbar: {
-            height: 1
-        },
-        series: [{
-            name: ytitle,
-            data: eval(post({}, url+"&startT="+startT+"&endT="+endT)),
-            type: 'spline',
-            tooltip: {
-                valueDecimals: 2
-            }
-        }]
-    });
-}
 </script>
